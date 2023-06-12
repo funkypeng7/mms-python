@@ -16,6 +16,21 @@ class Direction(Enum):
     @staticmethod
     def fromMouseDirection(mouseDirection : "Direction", relativeDirection : "MouseDirection") -> "Direction":
         return Direction((mouseDirection.value + relativeDirection.value) % 4)
+
+    @staticmethod
+    def fromVector(vector : tuple[int, int]) -> "Direction":
+        match (vector):
+            case (-1, 0):
+                return Direction.WEST
+            case (0, 1):
+                return Direction.NORTH
+            case (1, 0):
+                return Direction.EAST
+            case (0, -1):
+                return Direction.SOUTH
+            case _:
+                raise Exception("Invalid vector")
+        
     
     def turnsTo(self, turnTo : "Direction") -> list["MouseDirection"]:
         if (self.value != turnTo.value):
@@ -33,7 +48,7 @@ class Direction(Enum):
             case _:
                 raise Exception("Invalid turnTo")
             
-            
+    
 
     @property
     def vector(self) -> tuple[int, int]:

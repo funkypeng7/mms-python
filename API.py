@@ -3,7 +3,12 @@ import sys
 class MouseCrashedError(Exception):
     pass
 
+API_ENABLED = True
+
 def command(args, return_type=None):
+    if not API_ENABLED:
+        return
+    
     line = " ".join([str(x) for x in args]) + "\n"
     sys.stdout.write(line)
     sys.stdout.flush()

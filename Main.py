@@ -1,7 +1,12 @@
+import copy
 import API
 from enum import Enum
 from cell import Direction, MouseDirection, Cell
+from route import Route
 from tools import log
+from typing import Final
+import time
+import json
 
 
 class MouseState(Enum):
@@ -17,6 +22,8 @@ REACH_FINISH_GOAL = [(7,7), (7,8), (8,7), (8,8)]
 REACH_START_GOAL = [(0,0)]
 
 class Mouse:
+    ORDER_TO_CHECK : Final[list[MouseDirection]] = [MouseDirection.FORWARD, MouseDirection.LEFT, MouseDirection.RIGHT, MouseDirection.BACKWARD]
+
     def __init__(self) -> None:
         self.maze = Maze()
         self.x = 0
@@ -30,55 +37,37 @@ class Mouse:
                 case MouseState.EXPLORING:
                     complete = self.exploringMove(REACH_FINISH_GOAL, False, MouseState.RETURNING)
                     if (complete):
-                        # Mark out center square
-                        directionToCenter = self.FindBestDirection()
-                        dx, dy = directionToCenter.vector
-                        centerWithEntrance = (self.x + dx, self.y + dy)
-                        if centerWithEntrance != (7,7):
-                            self.maze.addWall(7,7, Direction.WEST)
-                            self.maze.addWall(7,7, Direction.SOUTH)
-                        if centerWithEntrance != (7,8):
-                            self.maze.addWall(7,8, Direction.WEST)
-                            self.maze.addWall(7,8, Direction.NORTH)
-                        if centerWithEntrance != (8,7):
-                            self.maze.addWall(8,7, Direction.EAST)
-                            self.maze.addWall(8,7, Direction.SOUTH)
-                        if centerWithEntrance != (8,8):
-                            self.maze.addWall(8,8, Direction.EAST)
-                            self.maze.addWall(8,8, Direction.NORTH)
-
-                        # Add center square without entrance
-                        possibleWallToAdd = [Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
-                        if (dx == 1):
-                            possibleWallToAdd.remove(Direction.WEST)
-                        elif (dx == -1):
-                            possibleWallToAdd.remove(Direction.EAST)
-                        elif (dy == 1):
-                            possibleWallToAdd.remove(Direction.SOUTH)
-                        elif (dy == -1):
-                            possibleWallToAdd.remove(Direction.NORTH)
-                        
-                        if centerWithEntrance[0] == 7:
-                            possibleWallToAdd.remove(Direction.EAST)
-                        elif centerWithEntrance[0] == 8:
-                            possibleWallToAdd.remove(Direction.WEST)
-
-                        if centerWithEntrance[1] == 7:
-                            possibleWallToAdd.remove(Direction.NORTH)
-                        elif centerWithEntrance[1] == 8:
-                            possibleWallToAdd.remove(Direction.SOUTH)
-
-                        assert len(possibleWallToAdd) == 1
-
-                        self.maze.addWall(centerWithEntrance[0], centerWithEntrance[1], possibleWallToAdd.pop())
+                        self.markOutCenter()
 
 
                 case MouseState.RETURNING:
-                    complete = self.exploringMove(REACH_START_GOAL, True, MouseState.FINISHED)
+                    complete = self.exploringMove(REACH_START_GOAL, True, MouseState.CALCULATING_ROUTE)
                     if complete: 
+                        # Turn to face out of the start box
                         API.clearAllColor()
                         clearDirections = Cell.getClearDirections(self.maze.cells[self.x][self.y])
                         self.TurnMouse(clearDirections[0])
+                        with open("maze.json", "w+") as f:
+                            f.write(json.dumps({"cells" : self.maze.cells, "explored" : self.maze.explored}))
+
+                    
+                case MouseState.CALCULATING_ROUTE:
+                    assert self.x == 0 and self.y == 0
+                    self.maze.blockUnexplored()
+                    bestRoutes = self.maze.calculateBestRoutes((self.x, self.y), self.direction, REACH_FINISH_GOAL, tryCalcuateAlternatives=True)
+                    for index, route in enumerate(bestRoutes):
+                        API.clearAllColor()
+                        for x, y in route:
+                            API.setColor(x, y, "g")
+                        log(f"Number of turns for route {index}: {route.getNumberOfTurns()}")
+                        time.sleep(1)
+                    self.state = MouseState.FINISHED
+                    with open("bestRoutes.json", "w+") as f:
+                        f.write(json.dumps({"bestRoutes" : bestRoutes}))
+                    print(f"Best Routes: {bestRoutes}")
+                    
+                    
+
 
                 case MouseState.FINISHED:
                     log("We made it!")
@@ -125,11 +114,27 @@ class Mouse:
     def FindBestDirection(self) -> Direction:
         # Get next direction
         currentCell = self.maze.cells[self.x][self.y]
-        clearDirections = Cell.getClearDirections(currentCell)
+        clearDirectionsAbsolute = Cell.getClearDirections(currentCell)
+        
+        # Convert to relative directions, to prioritize front over left over right over back
+        clearDirections = []
+
+        forwardAbsolute = Direction.fromMouseDirection(self.direction, MouseDirection.FORWARD)
+        leftAbsolute = Direction.fromMouseDirection(self.direction, MouseDirection.LEFT)
+        rightAbsolute = Direction.fromMouseDirection(self.direction, MouseDirection.RIGHT)
+        backwardAbsolute = Direction.fromMouseDirection(self.direction, MouseDirection.BACKWARD)
+
+        if forwardAbsolute in clearDirectionsAbsolute:
+            clearDirections.append(forwardAbsolute)
+        if leftAbsolute in clearDirectionsAbsolute:
+            clearDirections.append(leftAbsolute)
+        if rightAbsolute in clearDirectionsAbsolute:
+            clearDirections.append(rightAbsolute)
+        if backwardAbsolute in clearDirectionsAbsolute:
+            clearDirections.append(backwardAbsolute)
 
         log(f"Clear directions at ({self.x}, {self.y}): {clearDirections}")
 
-        # Check in reverse order to prioritize front over left over right over back
         bestDirection = clearDirections[0]
         bestDirectionValue = 999999
         for direction in clearDirections:
@@ -186,14 +191,13 @@ class Mouse:
         x, y = self.x, self.y
         direction = self.direction
         currentValue = self.maze.flood[x][y]
-        ORDER_TO_CHECK = [MouseDirection.FORWARD, MouseDirection.LEFT, MouseDirection.RIGHT, MouseDirection.BACKWARD]
         while (True):
             API.setColor(x, y, "g")
             if (currentValue == 0):
                 break
 
             clearDirections = Cell.getClearDirections(self.maze.cells[x][y])
-            for directionToCheck in ORDER_TO_CHECK:
+            for directionToCheck in Mouse.ORDER_TO_CHECK:
                 possibleNewDirection = Direction.fromMouseDirection(direction, directionToCheck)
                 if possibleNewDirection not in clearDirections:
                     continue
@@ -210,8 +214,63 @@ class Mouse:
                     currentValue -= 1
                     break
         
-            
+    def markOutCenter(self) -> None:
+        # Mark out center square
+        directionToCenter = self.FindBestDirection()
+        dx, dy = directionToCenter.vector
+        centerWithEntrance = (self.x + dx, self.y + dy)
+        if centerWithEntrance != (7,7):
+            self.maze.addWall(7,7, Direction.WEST)
+            self.maze.addWall(7,7, Direction.SOUTH)
+        if centerWithEntrance != (7,8):
+            self.maze.addWall(7,8, Direction.WEST)
+            self.maze.addWall(7,8, Direction.NORTH)
+        if centerWithEntrance != (8,7):
+            self.maze.addWall(8,7, Direction.EAST)
+            self.maze.addWall(8,7, Direction.SOUTH)
+        if centerWithEntrance != (8,8):
+            self.maze.addWall(8,8, Direction.EAST)
+            self.maze.addWall(8,8, Direction.NORTH)
 
+        # Add center square without entrance
+        possibleWallToAdd = [Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
+        if (dx == 1):
+            possibleWallToAdd.remove(Direction.WEST)
+        elif (dx == -1):
+            possibleWallToAdd.remove(Direction.EAST)
+        elif (dy == 1):
+            possibleWallToAdd.remove(Direction.SOUTH)
+        elif (dy == -1):
+            possibleWallToAdd.remove(Direction.NORTH)
+        
+        if centerWithEntrance[0] == 7:
+            possibleWallToAdd.remove(Direction.EAST)
+        elif centerWithEntrance[0] == 8:
+            possibleWallToAdd.remove(Direction.WEST)
+
+        if centerWithEntrance[1] == 7:
+            possibleWallToAdd.remove(Direction.NORTH)
+        elif centerWithEntrance[1] == 8:
+            possibleWallToAdd.remove(Direction.SOUTH)
+
+        assert len(possibleWallToAdd) == 1
+
+        self.maze.addWall(centerWithEntrance[0], centerWithEntrance[1], possibleWallToAdd.pop())
+
+        self.maze.setExplored(7, 7)
+        self.maze.setExplored(7, 8)
+        self.maze.setExplored(8, 7)
+        self.maze.setExplored(8, 8)
+
+    def loadMaze(self, filename : str) -> None:
+        with open(filename, "r") as f:
+            maze = json.loads(f.read())
+            self.maze = Maze()
+            self.maze.cells = maze["cells"]
+            self.maze.explored = maze["explored"]
+            self.maze.recalculate(REACH_FINISH_GOAL)
+            API.clearAllColor()
+            
 # Class for storing and displaying maze data
 # As well as calculating the shortest path
 # And active updating based on cells detected
@@ -234,8 +293,7 @@ class Maze:
         self.explored = [[False for _ in range (16)] for _ in range(16)]
         self.explored[0][0] = True
 
-    def recalculate(self, goal : list[tuple[int, int]]) -> None:
-        log("Recalculating maze")
+    def recalculate(self, goal : list[tuple[int, int]], updateDisplay : bool = True) -> None:
         # Flood fill
         self.flood = [[-1 for _ in range (16)] for _ in range(16)]
 
@@ -276,7 +334,114 @@ class Maze:
                 # Add to search
                 search.append((nx, ny))
 
+        if updateDisplay:
+            self.updateDisplay()
+
+    def blockUnexplored(self) -> None:
+        for x in range(16):
+            for y in range(16):
+                if not self.explored[x][y]:
+                    # Check if all cells around it are explored
+                    allNeighboursExplored = True
+                    for direction in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        nx, ny = x + direction[0], y + direction[1]
+                        if nx < 0 or nx >= 16 or ny < 0 or ny >= 16:
+                            continue
+
+                        if not self.getExplored(nx, ny):
+                            allNeighboursExplored = False
+                    
+                    if not allNeighboursExplored:
+                        self.cells[x][y] = 15
+
+                    self.setExplored(x, y)
         self.updateDisplay()
+
+    def calculateBestRoutes(self, start : tuple[int, int], startDirection : Direction, goal : list[tuple[int, int]], tryCalcuateAlternatives : bool = False) -> list[Route]:
+        self.recalculate(goal, updateDisplay=False)
+        
+        bestRoutes = []
+        stack = [(start, startDirection, Route([start]))]
+
+        while stack:
+            current, currentDirection, route = stack.pop()
+
+            if current in goal:
+                bestRoutes.append(route)
+                continue
+
+            x, y = current
+            # time.sleep(0.1)
+            API.clearAllColor()
+            API.setColor(x, y, "g")
+
+            mustCopyRoute = False
+            clearDirections = Cell.getClearDirections(self.cells[x][y])
+            for directionToCheck in Mouse.ORDER_TO_CHECK:
+                possibleNewDirection = Direction.fromMouseDirection(currentDirection, directionToCheck)
+                if possibleNewDirection not in clearDirections:
+                    continue
+
+                dx, dy = possibleNewDirection.vector
+                nx = x + dx
+                ny = y + dy
+                if (nx < 0 or nx >= 16 or ny < 0 or ny >= 16):
+                    continue
+
+                if not self.getExplored(nx, ny):
+                    # Check if all cells around it are explored
+                    allNeighboursExplored = True
+                    for direction in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        if not self.getExplored(nx + direction[0], ny + direction[1]):
+                            allNeighboursExplored = False
+                    
+                    if not allNeighboursExplored:
+                        continue
+
+                    self.setExplored(nx, ny)
+
+                API.setColor(nx, ny, "y")
+                if (self.flood[nx][ny] == self.flood[x][y] - 1):
+                    if mustCopyRoute:
+                        route = route.copy()
+                    mustCopyRoute = True
+                    route.append((nx, ny))
+                    stack.append(((nx, ny), possibleNewDirection, route))
+                    API.setColor(nx, ny, "g")
+
+                    break
+        
+        # Save maze cells to bring back after
+        if tryCalcuateAlternatives:
+            for route in bestRoutes[:]:
+                for index in range(len(route) - 1):
+                    testingMaze = Maze()
+                    testingMaze.cells = copy.deepcopy(self.cells)
+                    testingMaze.explored = copy.deepcopy(self.explored)
+                    
+                    x, y = route[index]
+                    dx, dy = route[index + 1][0] - x, route[index + 1][1] - y
+
+                    testingMaze.addWall(x, y, Direction.fromVector((dx, dy)))
+                    try:
+                        otherBestRoutes = testingMaze.calculateBestRoutes(start, startDirection, goal, False)
+                        bestRoutes.extend(otherBestRoutes)
+                    except:
+                        continue
+            
+            log(f"Had len(bestRoutes) = {len(bestRoutes)}")
+            bestRoutes = list(set(bestRoutes))
+            log(f"Now len(bestRoutes) = {len(bestRoutes)}")
+
+
+
+
+        return bestRoutes
+
+
+
+        # Find best route, when reaches a branch find both route from there, using depth first search approach
+
 
     def setExplored(self, x : int, y : int) -> None:
         self.explored[x][y] = True
@@ -334,11 +499,14 @@ class Maze:
                     API.setWall(x, y, "s")
                 if Direction.WEST not in clearDirections:
                     API.setWall(x, y, "w")
+
+                if not self.explored[x][y]:
+                    API.setColor(x, y, "r")
         
-
-
 def main() -> None:
     mouse = Mouse()
+    mouse.loadMaze("maze.json")
+    mouse.state = MouseState.CALCULATING_ROUTE
     mouse.run()
         
 
