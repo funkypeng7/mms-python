@@ -1,15 +1,17 @@
 from copy import copy
-from cell import Direction
-import API
+from src.cell import Direction
+import src.api as api
+import math
 
-class Route(list[tuple[int, int]]):
+
+class Path(list[tuple[int, int]]):
     def __init__(self, args : list[tuple[int, int]] | None = None) -> None:
         if (args is not None):
             super().__init__(args)
         else:
             super().__init__()
 
-    def copy(self) -> "Route":
+    def copy(self) -> "Path":
         return copy(self)
     
     
@@ -27,5 +29,6 @@ class Route(list[tuple[int, int]]):
             vector2 = (self[i + 2][0] - self[i + 1][0], self[i + 2][1] - self[i + 1][1])
             if (Direction.fromVector(vector1) != Direction.fromVector(vector2)):
                 turns += 1
-                API.setColor(self[i + 1][0], self[i + 1][1], "y")
+                # api.setColor(self[i + 1][0], self[i + 1][1], "y")
         return turns
+    

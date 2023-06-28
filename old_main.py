@@ -1,9 +1,8 @@
 import copy
-import API
+import src.api as api
 from enum import Enum
-from cell import Direction, MouseDirection, Cell
-from route import Route
-from tools import log
+from src.cell import Direction, MouseDirection, Cell
+from src.route import Route
 from typing import Final
 import time
 import json
@@ -11,15 +10,10 @@ import json
 
 class MouseState(Enum):
     EXPLORING = 0
-    RETURNING = 1
-    ALIGNING_AT_START = 2
-    CALCULATING_ROUTE = 3
-    SPEEDRUNNING = 5
-    SPEEDRETURNING = 6
-    FINISHED = 7
 
 REACH_FINISH_GOAL = [(7,7), (7,8), (8,7), (8,8)]
 REACH_START_GOAL = [(0,0)]
+ 
 
 class Mouse:
     ORDER_TO_CHECK : Final[list[MouseDirection]] = [MouseDirection.FORWARD, MouseDirection.LEFT, MouseDirection.RIGHT, MouseDirection.BACKWARD]
@@ -31,47 +25,13 @@ class Mouse:
         self.direction = Direction.NORTH
         self.state = MouseState.EXPLORING
 
-    def run(self) -> None:  
+    def run(self) -> None:
         while (True):
             match self.state:
                 case MouseState.EXPLORING:
                     complete = self.exploringMove(REACH_FINISH_GOAL, False, MouseState.RETURNING)
                     if (complete):
                         self.markOutCenter()
-
-
-                case MouseState.RETURNING:
-                    complete = self.exploringMove(REACH_START_GOAL, True, MouseState.CALCULATING_ROUTE)
-                    if complete: 
-                        # Turn to face out of the start box
-                        API.clearAllColor()
-                        clearDirections = Cell.getClearDirections(self.maze.cells[self.x][self.y])
-                        self.TurnMouse(clearDirections[0])
-                        with open("maze.json", "w+") as f:
-                            f.write(json.dumps({"cells" : self.maze.cells, "explored" : self.maze.explored}))
-
-                    
-                case MouseState.CALCULATING_ROUTE:
-                    assert self.x == 0 and self.y == 0
-                    self.maze.blockUnexplored()
-                    bestRoutes = self.maze.calculateBestRoutes((self.x, self.y), self.direction, REACH_FINISH_GOAL, tryCalcuateAlternatives=True)
-                    for index, route in enumerate(bestRoutes):
-                        API.clearAllColor()
-                        for x, y in route:
-                            API.setColor(x, y, "g")
-                        log(f"Number of turns for route {index}: {route.getNumberOfTurns()}")
-                        time.sleep(1)
-                    self.state = MouseState.FINISHED
-                    with open("bestRoutes.json", "w+") as f:
-                        f.write(json.dumps({"bestRoutes" : bestRoutes}))
-                    print(f"Best Routes: {bestRoutes}")
-                    
-                    
-
-
-                case MouseState.FINISHED:
-                    log("We made it!")
-                    return
 
     def exploringMove(self, goal : list[tuple[int, int]], shouldEnterGoal : bool, nextState : MouseState) -> bool:
         if (shouldEnterGoal and (self.x, self.y) in goal):
@@ -164,16 +124,16 @@ class Mouse:
         for turn in self.direction.turnsTo(newDirection):
             match turn:
                 case MouseDirection.LEFT:
-                    API.turnLeft()
+                    api.turnLeft()
                 case MouseDirection.RIGHT:
-                    API.turnRight()
+                    api.turnRight()
                 case _:
                     raise Exception("Invalid turn")
         
         self.direction = newDirection
 
     def MoveForward(self) -> None:
-        API.moveForward()
+        api.moveForward()
 
         # Update position
         dx, dy = self.direction.vector
@@ -182,17 +142,17 @@ class Mouse:
             
 
     def getSensors(self) -> tuple[bool, bool, bool]:
-        return (API.wallLeft(), API.wallFront(), API.wallRight())
+        return (api.wallLeft(), api.wallFront(), api.wallRight())
 
 
     def drawRoute(self) -> None:
-        API.clearAllColor()
+        api.clearAllColor()
 
         x, y = self.x, self.y
         direction = self.direction
         currentValue = self.maze.flood[x][y]
         while (True):
-            API.setColor(x, y, "g")
+            api.setColor(x, y, "g")
             if (currentValue == 0):
                 break
 
@@ -269,7 +229,7 @@ class Mouse:
             self.maze.cells = maze["cells"]
             self.maze.explored = maze["explored"]
             self.maze.recalculate(REACH_FINISH_GOAL)
-            API.clearAllColor()
+            api.clearAllColor()
             
 # Class for storing and displaying maze data
 # As well as calculating the shortest path
@@ -372,8 +332,8 @@ class Maze:
 
             x, y = current
             # time.sleep(0.1)
-            API.clearAllColor()
-            API.setColor(x, y, "g")
+            api.clearAllColor()
+            api.setColor(x, y, "g")
 
             mustCopyRoute = False
             clearDirections = Cell.getClearDirections(self.cells[x][y])
@@ -400,14 +360,14 @@ class Maze:
 
                     self.setExplored(nx, ny)
 
-                API.setColor(nx, ny, "y")
+                api.setColor(nx, ny, "y")
                 if (self.flood[nx][ny] == self.flood[x][y] - 1):
                     if mustCopyRoute:
                         route = route.copy()
                     mustCopyRoute = True
                     route.append((nx, ny))
                     stack.append(((nx, ny), possibleNewDirection, route))
-                    API.setColor(nx, ny, "g")
+                    api.setColor(nx, ny, "g")
 
                     break
         
@@ -479,10 +439,10 @@ class Maze:
 
                 # Check if visited
                 if distance == -1:
-                    API.setText(x, y, "X")
+                    api.setText(x, y, "X")
                     raise Exception("Flood fill algorithm did not complete maze")
                 else:
-                    API.setText(x, y, str(distance))
+                    api.setText(x, y, str(distance))
 
         for x in range(16):
             for y in range(16):
@@ -492,21 +452,21 @@ class Maze:
                 # Check if visited
                 clearDirections = Cell.getClearDirections(cell)
                 if Direction.NORTH not in clearDirections:
-                    API.setWall(x, y, "n")
+                    api.setWall(x, y, "n")
                 if Direction.EAST not in clearDirections:
-                    API.setWall(x, y, "e")
+                    api.setWall(x, y, "e")
                 if Direction.SOUTH not in clearDirections:
-                    API.setWall(x, y, "s")
+                    api.setWall(x, y, "s")
                 if Direction.WEST not in clearDirections:
-                    API.setWall(x, y, "w")
+                    api.setWall(x, y, "w")
 
                 if not self.explored[x][y]:
-                    API.setColor(x, y, "r")
+                    api.setColor(x, y, "r")
         
 def main() -> None:
     mouse = Mouse()
-    mouse.loadMaze("maze.json")
-    mouse.state = MouseState.CALCULATING_ROUTE
+    # mouse.loadMaze("maze.json")
+    # mouse.state = MouseState.CALCULATING_ROUTE
     mouse.run()
         
 

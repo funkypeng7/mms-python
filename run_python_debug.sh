@@ -1,0 +1,2 @@
+# conda activate MicromousePythonCSharp
+/Users/joshuab/anaconda3/envs/MicromousePythonCSharp/bin/python -m debugpy --listen 5679 --wait-for-client /Users/joshuab/Software/Personal/MicromouseProjects/MMSMicromousePythonV2C#Interface/src/route.py
